@@ -9,11 +9,11 @@
         const body = document.body;
         let scrollY = 0;
 
-        function closeMenu() {
+        function closeMenu(restoreScroll) {
             nav?.classList.remove('active');
             navToggle?.classList.remove('active');
             body.classList.remove('menu-open');
-            if (scrollY) {
+            if (restoreScroll !== false && scrollY) {
                 window.scrollTo(0, scrollY);
                 scrollY = 0;
             }
@@ -31,7 +31,22 @@
         });
 
         nav?.addEventListener('click', (e) => {
-            if (e.target.matches('a')) closeMenu();
+            const link = e.target.closest('a');
+            if (link) {
+                const href = link.getAttribute('href');
+                if (href && href.startsWith('#') && href !== '#') {
+                    e.preventDefault();
+                    closeMenu(false);
+                    const target = document.querySelector(href);
+                    if (target) {
+                        requestAnimationFrame(() => {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        });
+                    }
+                } else {
+                    closeMenu();
+                }
+            }
         });
 
         document.addEventListener('click', (e) => {
