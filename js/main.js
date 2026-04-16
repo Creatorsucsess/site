@@ -243,7 +243,35 @@
                 const el = document.createElement('div');
                 el.className = 'news-item';
                 const link = item.link ? '<a href="' + escapeHtml(item.link) + '" target="_blank" rel="noopener" class="news-vk-link">Читать во ВКонтакте</a>' : '';
-                el.innerHTML = '<span class="news-date">' + escapeHtml(item.date) + '</span><p>' + escapeHtml(item.content) + '</p>' + link;
+                const title = item.title ? '<div class="news-title">' + escapeHtml(item.title) + '</div>' : '';
+
+                const attachments = Array.isArray(item.attachments) ? item.attachments : [];
+                const images = attachments.filter(a => (a.type || '').startsWith('image/'));
+                const files = attachments.filter(a => !(a.type || '').startsWith('image/'));
+
+                const imagesHtml = images.length
+                    ? '<div class="news-images">' + images.map(a => (
+                        '<a class="news-image-link" href="' + escapeHtml(a.url) + '" target="_blank" rel="noopener">' +
+                        '<img class="news-image" src="' + escapeHtml(a.url) + '" alt="' + escapeHtml(a.name || 'Фото') + '" loading="lazy">' +
+                        '</a>'
+                    )).join('') + '</div>'
+                    : '';
+
+                const filesHtml = files.length
+                    ? '<div class="news-files">' + files.map(a => (
+                        '<a class="news-file" href="' + escapeHtml(a.url) + '" target="_blank" rel="noopener">' +
+                        escapeHtml(a.name || a.url) +
+                        '</a>'
+                    )).join('') + '</div>'
+                    : '';
+
+                el.innerHTML =
+                    '<span class="news-date">' + escapeHtml(item.date) + '</span>' +
+                    title +
+                    '<p>' + escapeHtml(item.content) + '</p>' +
+                    imagesHtml +
+                    filesHtml +
+                    link;
                 container.appendChild(el);
             });
         }

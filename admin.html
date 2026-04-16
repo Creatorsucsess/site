@@ -151,6 +151,12 @@
                     <label for="news-content">Текст новости</label>
                     <textarea id="news-content" name="content" rows="5" required></textarea>
                 </div>
+                <div class="form-group">
+                    <label for="news-files">Файлы и фото</label>
+                    <input type="file" id="news-files" name="files" multiple>
+                    <div class="attachments" id="attachments"></div>
+                    <p class="form-hint">Можно выбрать до 10 файлов (до 15 МБ каждый). Фото будут показаны в новости, остальные файлы — ссылками.</p>
+                </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary modal-cancel">Отмена</button>
                     <button type="submit" class="btn btn-primary">Сохранить</button>

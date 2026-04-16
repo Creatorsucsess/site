@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,15 +10,17 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const DATA_DIR = path.join(__dirname, 'data');
 const NEWS_FILE = path.join(DATA_DIR, 'news.json');
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(NEWS_FILE)) fs.writeFileSync(NEWS_FILE, '[]');
 if (!fs.existsSync(STATS_FILE)) {
   fs.writeFileSync(
     STATS_FILE,
-    JSON.stringify({ totalViews: 0, viewsByDate: {}, uniqueVisitors: {} }, null, 2)
+    JSON.stringify({ totalViews: 0, viewsByDate: {}, uniqueVisitors: {}, uniqueVisitorsTotal: 0, uniqueByDate: {} }, null, 2)
   );
 }
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 function readNews() {
   try {
@@ -33,9 +36,15 @@ function writeNews(news) {
 
 function readStats() {
   try {
-    return JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+    const s = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+    if (!s.viewsByDate) s.viewsByDate = {};
+    if (!s.uniqueVisitors) s.uniqueVisitors = {};
+    if (!s.uniqueByDate) s.uniqueByDate = {};
+    if (typeof s.totalViews !== 'number') s.totalViews = Number(s.totalViews || 0);
+    if (typeof s.uniqueVisitorsTotal !== 'number') s.uniqueVisitorsTotal = Number(s.uniqueVisitorsTotal || 0);
+    return s;
   } catch {
-    return { totalViews: 0, viewsByDate: {}, uniqueVisitors: {} };
+    return { totalViews: 0, viewsByDate: {}, uniqueVisitors: {}, uniqueVisitorsTotal: 0, uniqueByDate: {} };
   }
 }
 
@@ -79,6 +88,24 @@ app.use(session({
 }));
 
 app.use(express.static(__dirname));
+app.use('/uploads', express.static(UPLOADS_DIR, { fallthrough: false }));
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+    filename: (req, file, cb) => {
+      const safeOriginal = String(file.originalname || 'file').replace(/[^\w.\-()\s]/g, '_');
+      const ext = path.extname(safeOriginal);
+      const base = path.basename(safeOriginal, ext).slice(0, 60);
+      const name = `${Date.now()}-${Math.random().toString(16).slice(2)}-${base}${ext}`;
+      cb(null, name);
+    }
+  }),
+  limits: {
+    files: 10,
+    fileSize: 15 * 1024 * 1024
+  }
+});
 
 const VK_GROUP_ID = 224887019;
 const VK_ACCESS_TOKEN = process.env.VK_ACCESS_TOKEN;
@@ -90,7 +117,8 @@ app.get('/api/news', (req, res) => {
   const normalized = news.map(n => ({
     ...n,
     title: n.title || '',
-    status: normalizeStatus(n.status)
+    status: normalizeStatus(n.status),
+    attachments: Array.isArray(n.attachments) ? n.attachments : []
   }));
 
   const filtered = includeAll ? normalized : normalized.filter(n => n.status === 'published');
@@ -149,6 +177,7 @@ app.get('/api/stats', requireAuth, (req, res) => {
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayViews = Number(stats.viewsByDate?.[todayKey] || 0);
+  const todayUnique = Number(stats.uniqueByDate?.[todayKey] || 0);
 
   const last7 = [];
   for (let i = 6; i >= 0; i--) {
@@ -168,7 +197,7 @@ app.get('/api/stats', requireAuth, (req, res) => {
       content: (n.content || '').slice(0, 180)
     }));
 
-  const uniqueVisitorsCount = Object.keys(stats.uniqueVisitors || {}).length;
+  const uniqueVisitorsCount = Number(stats.uniqueVisitorsTotal || Object.keys(stats.uniqueVisitors || {}).length);
 
   // News chart (last 14 days, published only)
   const last14 = [];
@@ -190,6 +219,7 @@ app.get('/api/stats', requireAuth, (req, res) => {
     views: {
       totalViews: Number(stats.totalViews || 0),
       todayViews,
+      todayUnique,
       uniqueVisitors: uniqueVisitorsCount,
       last7
     },
@@ -212,20 +242,38 @@ app.post('/api/track/view', (req, res) => {
 
   stats.uniqueVisitors = stats.uniqueVisitors || {};
   stats.viewsByDate = stats.viewsByDate || {};
+  stats.uniqueByDate = stats.uniqueByDate || {};
+  if (typeof stats.uniqueVisitorsTotal !== 'number') stats.uniqueVisitorsTotal = Number(stats.uniqueVisitorsTotal || 0);
 
+  // Page views
+  stats.totalViews = Number(stats.totalViews || 0) + 1;
+  stats.viewsByDate[todayKey] = Number(stats.viewsByDate[todayKey] || 0) + 1;
+
+  // Unique visitors per day and total unique
+  if (!stats.uniqueVisitors[visitorId]) {
+    stats.uniqueVisitorsTotal = Number(stats.uniqueVisitorsTotal || 0) + 1;
+  }
   if (stats.uniqueVisitors[visitorId] !== todayKey) {
     stats.uniqueVisitors[visitorId] = todayKey;
-    stats.totalViews = Number(stats.totalViews || 0) + 1;
-    stats.viewsByDate[todayKey] = Number(stats.viewsByDate[todayKey] || 0) + 1;
-
+    stats.uniqueByDate[todayKey] = Number(stats.uniqueByDate[todayKey] || 0) + 1;
   }
 
   writeStats(stats);
   res.json({ ok: true });
 });
 
+app.post('/api/uploads', requireAuth, upload.array('files', 10), (req, res) => {
+  const files = (req.files || []).map(f => ({
+    url: `/uploads/${f.filename}`,
+    name: f.originalname,
+    type: f.mimetype,
+    size: f.size
+  }));
+  res.json({ files });
+});
+
 app.post('/api/news', requireAuth, (req, res) => {
-  const { date, title, content, status } = req.body || {};
+  const { date, title, content, status, attachments } = req.body || {};
   if (!date || !content?.trim()) return res.status(400).json({ error: 'Укажите дату и текст' });
 
   const news = readNews();
@@ -235,7 +283,8 @@ app.post('/api/news', requireAuth, (req, res) => {
     date: String(date).trim(),
     title: (title || '').trim(),
     content: String(content).trim(),
-    status: normalizeStatus(status)
+    status: normalizeStatus(status),
+    attachments: Array.isArray(attachments) ? attachments : []
   });
 
   writeNews(news);
@@ -244,7 +293,7 @@ app.post('/api/news', requireAuth, (req, res) => {
 
 app.put('/api/news/:id', requireAuth, (req, res) => {
   const { id } = req.params;
-  const { date, title, content, status } = req.body || {};
+  const { date, title, content, status, attachments } = req.body || {};
 
   const news = readNews();
   const idx = news.findIndex(n => n.id === id);
@@ -254,6 +303,7 @@ app.put('/api/news/:id', requireAuth, (req, res) => {
   if (title !== undefined) news[idx].title = (title || '').trim();
   if (content !== undefined) news[idx].content = String(content).trim();
   if (status !== undefined) news[idx].status = normalizeStatus(status);
+  if (attachments !== undefined) news[idx].attachments = Array.isArray(attachments) ? attachments : [];
 
   writeNews(news);
   res.json(news[idx]);

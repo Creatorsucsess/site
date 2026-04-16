@@ -30,6 +30,8 @@
     const newsTitleInput = document.getElementById('news-title');
     const newsStatusInput = document.getElementById('news-status');
     const newsContentInput = document.getElementById('news-content');
+    const newsFilesInput = document.getElementById('news-files');
+    const attachmentsEl = document.getElementById('attachments');
 
     const toast = document.getElementById('toast');
 
@@ -47,6 +49,8 @@
 
     let lastStatsLoadAt = 0;
     let newsReloadTimer = null;
+    let selectedFiles = [];
+    let currentAttachments = [];
 
     async function api(path, options = {}) {
         const res = await fetch(API + path, {
@@ -73,6 +77,81 @@
         const div = document.createElement('div');
         div.textContent = String(s ?? '');
         return div.innerHTML;
+    }
+
+    function formatBytes(bytes) {
+        const b = Number(bytes || 0);
+        if (b < 1024) return `${b} Б`;
+        const kb = b / 1024;
+        if (kb < 1024) return `${kb.toFixed(1)} КБ`;
+        const mb = kb / 1024;
+        return `${mb.toFixed(1)} МБ`;
+    }
+
+    function isImageType(type, name) {
+        const t = (type || '').toLowerCase();
+        if (t.startsWith('image/')) return true;
+        const n = (name || '').toLowerCase();
+        return ['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => n.endsWith(ext));
+    }
+
+    function renderAttachments() {
+        if (!attachmentsEl) return;
+        const all = [
+            ...currentAttachments.map(a => ({ ...a, source: 'saved' })),
+            ...selectedFiles.map(f => ({
+                source: 'local',
+                name: f.name,
+                type: f.type,
+                size: f.size
+            }))
+        ];
+
+        attachmentsEl.innerHTML = all.length ? all.map((a, idx) => {
+            const sub = `${isImageType(a.type, a.name) ? 'Фото' : 'Файл'} · ${a.size ? formatBytes(a.size) : ''}`.trim();
+            const btn = a.source === 'saved'
+                ? `<button type="button" class="btn btn-danger btn-remove-attachment" data-kind="saved" data-idx="${idx}">Убрать</button>`
+                : `<button type="button" class="btn btn-danger btn-remove-attachment" data-kind="local" data-idx="${idx}">Убрать</button>`;
+            return `
+                <div class="attachment-item">
+                    <div class="attachment-meta">
+                        <div class="attachment-name">${escapeHtml(a.name || 'Файл')}</div>
+                        <div class="attachment-sub">${escapeHtml(sub)}</div>
+                    </div>
+                    <div class="attachment-actions">${btn}</div>
+                </div>
+            `;
+        }).join('') : '';
+
+        attachmentsEl.querySelectorAll('.btn-remove-attachment').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const kind = btn.dataset.kind;
+                const idx2 = Number(btn.dataset.idx);
+                if (kind === 'saved') {
+                    // idx among combined: saved first
+                    const savedIdx = idx2;
+                    currentAttachments.splice(savedIdx, 1);
+                } else {
+                    const localIdx = idx2 - currentAttachments.length;
+                    if (localIdx >= 0) selectedFiles.splice(localIdx, 1);
+                }
+                renderAttachments();
+            });
+        });
+    }
+
+    async function uploadSelectedFiles() {
+        if (!selectedFiles.length) return [];
+        const form = new FormData();
+        selectedFiles.forEach(f => form.append('files', f));
+        const res = await fetch(API + '/api/uploads', {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: form
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить файлы');
+        return Array.isArray(data.files) ? data.files : [];
     }
 
     function formatRuDateToToday() {
@@ -156,6 +235,10 @@
         newsTitleInput.value = '';
         newsStatusInput.value = 'published';
         newsContentInput.value = '';
+        selectedFiles = [];
+        currentAttachments = [];
+        if (newsFilesInput) newsFilesInput.value = '';
+        renderAttachments();
     }
 
     function closeModal() {
@@ -173,6 +256,10 @@
         newsTitleInput.value = item.title || '';
         newsStatusInput.value = item.status === 'draft' ? 'draft' : 'published';
         newsContentInput.value = item.content || '';
+        selectedFiles = [];
+        currentAttachments = Array.isArray(item.attachments) ? item.attachments : [];
+        if (newsFilesInput) newsFilesInput.value = '';
+        renderAttachments();
 
         modal.classList.remove('hidden');
     }
@@ -212,16 +299,24 @@
         if (!date || !content) return;
 
         try {
+            const uploaded = await uploadSelectedFiles();
+            const attachments = [...currentAttachments, ...uploaded].map(a => ({
+                url: a.url,
+                name: a.name,
+                type: a.type,
+                size: a.size
+            }));
+
             if (id) {
                 await api(`/api/news/${id}`, {
                     method: 'PUT',
-                    body: JSON.stringify({ date, title, content, status })
+                    body: JSON.stringify({ date, title, content, status, attachments })
                 });
                 showToast('Новость обновлена', 'success');
             } else {
                 await api('/api/news', {
                     method: 'POST',
-                    body: JSON.stringify({ date, title, content, status })
+                    body: JSON.stringify({ date, title, content, status, attachments })
                 });
                 showToast('Новость добавлена', 'success');
             }
@@ -249,6 +344,11 @@
     newsStatusFilter?.addEventListener('change', () => loadNews());
     refreshNewsBtn?.addEventListener('click', () => loadNews());
 
+    newsFilesInput?.addEventListener('change', () => {
+        selectedFiles = Array.from(newsFilesInput.files || []);
+        renderAttachments();
+    });
+
     async function loadStats() {
         try {
             const stats = await api('/api/stats');
@@ -271,6 +371,7 @@
                 const label = d.date ? d.date.slice(5) : '';
                 return `
                     <div class="chart-item" title="${escapeHtml(d.date)}: ${escapeHtml(count)}">
+                        <div class="chart-count">${escapeHtml(count)}</div>
                         <div class="chart-bar" style="height:${h}px"></div>
                         <div class="chart-date">${escapeHtml(label)}</div>
                     </div>
@@ -287,6 +388,7 @@
                 const label = d.date ? d.date.slice(5) : '';
                 return `
                     <div class="chart-item" title="${escapeHtml(d.date)}: ${escapeHtml(count)}">
+                        <div class="chart-count">${escapeHtml(count)}</div>
                         <div class="chart-bar" style="height:${h}px"></div>
                         <div class="chart-date">${idx % 2 === 0 ? escapeHtml(label) : ''}</div>
                     </div>

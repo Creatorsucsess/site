@@ -904,6 +904,62 @@ body {
     margin-bottom: 10px;
 }
 
+.news-title {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.35;
+    margin-bottom: 10px;
+}
+
+.news-images {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.news-image-link {
+    display: block;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid rgba(33, 88, 141, 0.12);
+    background: rgba(255,255,255,0.6);
+}
+
+.news-image {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    display: block;
+}
+
+.news-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.news-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(33, 88, 141, 0.18);
+    background: rgba(33, 88, 141, 0.06);
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.news-file:hover {
+    background: rgba(33, 88, 141, 0.1);
+}
+
 .news-vk-link {
     display: inline-block;
     margin-top: 10px;
