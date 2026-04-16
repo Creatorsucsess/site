@@ -31,7 +31,12 @@ function readNews() {
 }
 
 function writeNews(news) {
-  fs.writeFileSync(NEWS_FILE, JSON.stringify(news, null, 2));
+  try {
+    fs.writeFileSync(NEWS_FILE, JSON.stringify(news, null, 2));
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    throw new Error(`Не удалось сохранить новости: ${msg}`);
+  }
 }
 
 function readStats() {
@@ -49,7 +54,12 @@ function readStats() {
 }
 
 function writeStats(stats) {
-  fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
+  try {
+    fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    throw new Error(`Не удалось сохранить статистику: ${msg}`);
+  }
 }
 
 function requireAuth(req, res, next) {
@@ -332,65 +342,85 @@ app.post('/api/news', requireAuth, (req, res) => {
   const { date, title, content, status, attachments } = req.body || {};
   if (!date || !content?.trim()) return res.status(400).json({ error: 'Укажите дату и текст' });
 
-  const news = readNews();
-  const id = String(Date.now());
-  news.unshift({
-    id,
-    date: String(date).trim(),
-    title: (title || '').trim(),
-    content: String(content).trim(),
-    status: normalizeStatus(status),
-    attachments: Array.isArray(attachments) ? attachments : []
-  });
+  try {
+    const news = readNews();
+    const id = String(Date.now());
+    news.unshift({
+      id,
+      date: String(date).trim(),
+      title: (title || '').trim(),
+      content: String(content).trim(),
+      status: normalizeStatus(status),
+      attachments: Array.isArray(attachments) ? attachments : []
+    });
 
-  writeNews(news);
-  res.json(news[0]);
+    writeNews(news);
+    res.json(news[0]);
+  } catch (e) {
+    res.status(500).json({ error: e?.message || 'Ошибка сохранения новости' });
+  }
 });
 
 app.put('/api/news/:id', requireAuth, (req, res) => {
   const { id } = req.params;
   const { date, title, content, status, attachments } = req.body || {};
 
-  const news = readNews();
-  const idx = news.findIndex(n => n.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Новость не найдена' });
+  try {
+    const news = readNews();
+    const idx = news.findIndex(n => n.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Новость не найдена' });
 
-  const prevAttachments = Array.isArray(news[idx].attachments) ? news[idx].attachments : [];
+    const prevAttachments = Array.isArray(news[idx].attachments) ? news[idx].attachments : [];
 
-  if (date !== undefined) news[idx].date = String(date).trim();
-  if (title !== undefined) news[idx].title = (title || '').trim();
-  if (content !== undefined) news[idx].content = String(content).trim();
-  if (status !== undefined) news[idx].status = normalizeStatus(status);
-  if (attachments !== undefined) news[idx].attachments = Array.isArray(attachments) ? attachments : [];
+    if (date !== undefined) news[idx].date = String(date).trim();
+    if (title !== undefined) news[idx].title = (title || '').trim();
+    if (content !== undefined) news[idx].content = String(content).trim();
+    if (status !== undefined) news[idx].status = normalizeStatus(status);
+    if (attachments !== undefined) news[idx].attachments = Array.isArray(attachments) ? attachments : [];
 
-  // Remove files that were detached from the news
-  if (attachments !== undefined) {
-    const next = Array.isArray(news[idx].attachments) ? news[idx].attachments : [];
-    const nextUrls = new Set(next.map(a => a?.url).filter(Boolean));
-    prevAttachments.forEach(a => {
-      const url = a?.url;
-      if (url && !nextUrls.has(url)) safeUnlinkUploadByUrl(url);
-    });
+    // Remove files that were detached from the news
+    if (attachments !== undefined) {
+      const next = Array.isArray(news[idx].attachments) ? news[idx].attachments : [];
+      const nextUrls = new Set(next.map(a => a?.url).filter(Boolean));
+      prevAttachments.forEach(a => {
+        const url = a?.url;
+        if (url && !nextUrls.has(url)) safeUnlinkUploadByUrl(url);
+      });
+    }
+
+    writeNews(news);
+    res.json(news[idx]);
+  } catch (e) {
+    res.status(500).json({ error: e?.message || 'Ошибка обновления новости' });
   }
-
-  writeNews(news);
-  res.json(news[idx]);
 });
 
 app.delete('/api/news/:id', requireAuth, (req, res) => {
   const { id } = req.params;
-  const news = readNews();
-  const item = news.find(n => n.id === id);
-  const next = news.filter(n => n.id !== id);
-  writeNews(next);
+  try {
+    const news = readNews();
+    const item = news.find(n => n.id === id);
+    if (!item) return res.status(404).json({ error: 'Новость не найдена' });
 
-  const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
-  attachments.forEach(a => safeUnlinkUploadByUrl(a?.url));
+    const next = news.filter(n => n.id !== id);
+    writeNews(next);
 
-  res.json({ ok: true });
+    const attachments = Array.isArray(item.attachments) ? item.attachments : [];
+    attachments.forEach(a => safeUnlinkUploadByUrl(a?.url));
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || 'Ошибка удаления новости' });
+  }
 });
 
 app.listen(PORT, () => {
   console.log(`Сервер: http://localhost:${PORT}`);
   console.log(`Админка: http://localhost:${PORT}/admin.html`);
+});
+
+// Fallback JSON error handler (so admin UI shows real error)
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  res.status(500).json({ error: err?.message || 'Ошибка сервера' });
 });
