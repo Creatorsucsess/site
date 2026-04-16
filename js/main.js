@@ -145,11 +145,9 @@
         const lightboxCounter = lightbox?.querySelector('.lightbox-counter');
         const body = document.body;
 
-        if (!gallery || !lightbox || !lightboxImg) return;
+        if (!lightbox || !lightboxImg || !lightboxCounter) return;
 
-        const images = Array.from(gallery.querySelectorAll('.gallery-img'));
-        if (!images.length) return;
-
+        let images = [];
         let currentIndex = 0;
 
         function updateImage() {
@@ -159,7 +157,12 @@
             lightboxCounter.textContent = `${currentIndex + 1} / ${images.length}`;
         }
 
+        function setImages(newImages) {
+            images = Array.isArray(newImages) ? newImages : [];
+        }
+
         function open(index) {
+            if (!images.length) return;
             currentIndex = index;
             updateImage();
             lightbox.classList.add('active');
@@ -183,12 +186,32 @@
             updateImage();
         }
 
-        gallery.addEventListener('click', (e) => {
-            const img = e.target.closest('.gallery-img');
-            if (img) {
-                const index = images.indexOf(img);
-                if (index !== -1) open(index);
+        if (gallery) {
+            const galleryImages = Array.from(gallery.querySelectorAll('.gallery-img'));
+            if (galleryImages.length) {
+                gallery.addEventListener('click', (e) => {
+                    const img = e.target.closest('.gallery-img');
+                    if (img) {
+                        setImages(galleryImages);
+                        const index = galleryImages.indexOf(img);
+                        if (index !== -1) open(index);
+                    }
+                });
             }
+        }
+
+        // News images lightbox (delegated, since news loads async)
+        document.addEventListener('click', (e) => {
+            const img = e.target.closest('.news-image');
+            if (!img) return;
+            e.preventDefault();
+            const wrap = img.closest('.news-images');
+            if (!wrap) return;
+            const list = Array.from(wrap.querySelectorAll('.news-image'));
+            if (!list.length) return;
+            setImages(list);
+            const index = list.indexOf(img);
+            if (index !== -1) open(index);
         });
 
         lightbox.querySelector('.lightbox-close')?.addEventListener('click', close);

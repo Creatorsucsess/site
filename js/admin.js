@@ -95,6 +95,23 @@
         return ['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => n.endsWith(ext));
     }
 
+    function isAllowedClientFile(file) {
+        const name = (file?.name || '').toLowerCase();
+        const type = (file?.type || '').toLowerCase();
+        if (type.startsWith('image/')) return true;
+        const allowedExt = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.zip', '.rar'];
+        return allowedExt.some(ext => name.endsWith(ext));
+    }
+
+    function sortFiles(files) {
+        return files.slice().sort((a, b) => {
+            const ai = isImageType(a.type, a.name) ? 0 : 1;
+            const bi = isImageType(b.type, b.name) ? 0 : 1;
+            if (ai !== bi) return ai - bi;
+            return String(a.name || '').localeCompare(String(b.name || ''), 'ru');
+        });
+    }
+
     function renderAttachments() {
         if (!attachmentsEl) return;
         const all = [
@@ -345,7 +362,18 @@
     refreshNewsBtn?.addEventListener('click', () => loadNews());
 
     newsFilesInput?.addEventListener('change', () => {
-        selectedFiles = Array.from(newsFilesInput.files || []);
+        let files = Array.from(newsFilesInput.files || []);
+        const bad = files.filter(f => !isAllowedClientFile(f));
+        if (bad.length) {
+            showToast('Некоторые файлы отклонены (тип не поддерживается)', 'error');
+            files = files.filter(f => isAllowedClientFile(f));
+        }
+        files = sortFiles(files);
+        if (files.length > 10) {
+            showToast('Можно выбрать максимум 10 файлов', 'error');
+            files = files.slice(0, 10);
+        }
+        selectedFiles = files;
         renderAttachments();
     });
 
