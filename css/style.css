@@ -490,6 +490,37 @@ body {
     align-items: stretch;
 }
 
+.team-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 18px;
+    position: relative;
+    z-index: 1;
+}
+
+.team-card {
+    background: linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.4) 100%);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: var(--radius-xl);
+    padding: 20px 22px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.team-name {
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.35;
+    margin-bottom: 8px;
+    font-size: 1.02rem;
+}
+
+.team-role {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
 .doc-card {
     display: flex;
     flex-direction: column;
@@ -1027,6 +1058,7 @@ a, button {
     .news-item { padding: 18px 22px; }
     #vk_groups { min-height: 400px; width: 100% !important; }
     .footer-brand { font-size: 1.05rem; }
+    .team-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 380px) {

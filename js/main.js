@@ -283,8 +283,32 @@
         if (el) el.textContent = new Date().getFullYear();
     }
 
+    function initSiteTracking() {
+        try {
+            const key = 'otechestvo-visitor-id';
+            let visitorId = localStorage.getItem(key);
+            if (!visitorId) {
+                visitorId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                    ? window.crypto.randomUUID()
+                    : `v_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+                localStorage.setItem(key, visitorId);
+            }
+
+            // Tracks “home view” once per visitor per day (server side deduplicates).
+            fetch('/api/track/view', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ visitorId, page: 'home' })
+            }).catch(() => {});
+        } catch {
+            // ignore tracking errors
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initCopyrightYear();
+        initSiteTracking();
         initNav();
         initScroll();
         initScrollReveal();
