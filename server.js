@@ -78,6 +78,46 @@ function normalizeStatus(status) {
   return status === 'draft' ? 'draft' : 'published';
 }
 
+function isAllowedUpload(file) {
+  const name = String(file.originalname || '').toLowerCase();
+  const ext = path.extname(name);
+  const mime = String(file.mimetype || '').toLowerCase();
+
+  const allowedExt = new Set([
+    '.png', '.jpg', '.jpeg', '.webp', '.gif',
+    '.pdf',
+    '.doc', '.docx',
+    '.xls', '.xlsx',
+    '.ppt', '.pptx',
+    '.txt',
+    '.zip', '.rar'
+  ]);
+
+  if (mime.startsWith('image/')) return true;
+  if (allowedExt.has(ext)) return true;
+  // Some providers send generic MIME types
+  if (mime === 'application/octet-stream' && allowedExt.has(ext)) return true;
+
+  return false;
+}
+
+function attachmentUrlToFilename(url) {
+  const u = String(url || '');
+  if (!u.startsWith('/uploads/')) return null;
+  const file = u.slice('/uploads/'.length);
+  if (!file || file.includes('..') || file.includes('/') || file.includes('\\')) return null;
+  return file;
+}
+
+function safeUnlinkUploadByUrl(url) {
+  const filename = attachmentUrlToFilename(url);
+  if (!filename) return;
+  const fullPath = path.join(UPLOADS_DIR, filename);
+  try {
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+  } catch {}
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -104,6 +144,10 @@ const upload = multer({
   limits: {
     files: 10,
     fileSize: 15 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    if (!isAllowedUpload(file)) return cb(new Error('Недопустимый тип файла'));
+    cb(null, true);
   }
 });
 
@@ -272,6 +316,18 @@ app.post('/api/uploads', requireAuth, upload.array('files', 10), (req, res) => {
   res.json({ files });
 });
 
+// Multer / upload errors
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: err.message || 'Ошибка загрузки' });
+  }
+  if (String(err.message || '').includes('Недопустимый тип файла')) {
+    return res.status(400).json({ error: 'Недопустимый тип файла' });
+  }
+  return next(err);
+});
+
 app.post('/api/news', requireAuth, (req, res) => {
   const { date, title, content, status, attachments } = req.body || {};
   if (!date || !content?.trim()) return res.status(400).json({ error: 'Укажите дату и текст' });
@@ -299,11 +355,23 @@ app.put('/api/news/:id', requireAuth, (req, res) => {
   const idx = news.findIndex(n => n.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Новость не найдена' });
 
+  const prevAttachments = Array.isArray(news[idx].attachments) ? news[idx].attachments : [];
+
   if (date !== undefined) news[idx].date = String(date).trim();
   if (title !== undefined) news[idx].title = (title || '').trim();
   if (content !== undefined) news[idx].content = String(content).trim();
   if (status !== undefined) news[idx].status = normalizeStatus(status);
   if (attachments !== undefined) news[idx].attachments = Array.isArray(attachments) ? attachments : [];
+
+  // Remove files that were detached from the news
+  if (attachments !== undefined) {
+    const next = Array.isArray(news[idx].attachments) ? news[idx].attachments : [];
+    const nextUrls = new Set(next.map(a => a?.url).filter(Boolean));
+    prevAttachments.forEach(a => {
+      const url = a?.url;
+      if (url && !nextUrls.has(url)) safeUnlinkUploadByUrl(url);
+    });
+  }
 
   writeNews(news);
   res.json(news[idx]);
@@ -311,8 +379,14 @@ app.put('/api/news/:id', requireAuth, (req, res) => {
 
 app.delete('/api/news/:id', requireAuth, (req, res) => {
   const { id } = req.params;
-  const news = readNews().filter(n => n.id !== id);
-  writeNews(news);
+  const news = readNews();
+  const item = news.find(n => n.id === id);
+  const next = news.filter(n => n.id !== id);
+  writeNews(next);
+
+  const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+  attachments.forEach(a => safeUnlinkUploadByUrl(a?.url));
+
   res.json({ ok: true });
 });
 
